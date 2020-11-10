@@ -1,53 +1,123 @@
+/***
+* Name: Unga Aaya
+* Author: Group 24
+***/
 
 model Auction
 
 global {
-    init {
-    	create Auctioneer number: 1;
-        create participant number: 1;
+       init {
+         
+        create participant number: 20 {
+           location <- {rnd(100), rnd(100)};
         }
+     
+        create Auctioneer number: 4 {
+           	location <- {rnd(100), rnd(100)};
+        }    
+    }
      
     
 }
 
 species Auctioneer skills:[fipa] {
     
-	int flag<-0;
-	reflex send_request when: flag=0
+	bool acutionStarted <- false;
+    bool myTurn <- true;
+    int minimumPrice <- 1000 + rnd(500, 1000);
+    int startPrice <- minimumPrice + rnd(1000,2000);
+    int currentPrice <- startPrice;
+    participant winner <- nil;
+    list<participant> potentialBuyers <- [];
+    bool itemSold <- false;
+    
+    init {
+    	ask participant {
+    		myself.potentialBuyers << self;
+    	}
+    }
+     reflex initiateAuction when: !acutionStarted
+     {
+        write "Auction Starting Everyone!!!";
+        do start_conversation (to: list(potentialBuyers), protocol: 'fipa-request', performative: 'inform', contents: ['Start']);
+        acutionStarted <- true;
+    }
+    reflex sendProposals when: acutionStarted and myTurn and !empty(potentialBuyers) and !itemSold 
+    {
+    	write name + " Going for... " + currentPrice + "!!!";
+    	do start_conversation with:(to: list(potentialBuyers), protocol: 'fipa-contract-net', performative: 'cfp', contents: [currentPrice]);
+    	myTurn <- false;
+    }
+    reflex receieveProposes when: !empty(proposes) and winner = nil 
+    {
+    	bool foundWinner <- false;
+    	loop p over: proposes {
+    		write p.contents;
+			if(list(p.contents)[0] = 'accept') {
+				foundWinner <- true;
+				itemSold <- true;
+				winner <- p.sender;
+				break;
+			}
+		}
+		if(foundWinner) {
+	        	acutionStarted <- false;
+	            write ' Found a winner! '+ winner + ' won for '+ currentPrice;
+		} else {
+			write name + " No one likes this price, let's drop it!";
+			if (currentPrice <= minimumPrice) {
+				write "Opps price already too low, auction is over, you're all too cheap!";
+				acutionStarted <- false;
+				itemSold <- true;
+			} else {
+				currentPrice <- currentPrice - rnd(5,20);
+	    		myTurn <- true;
+			}
+		}
+    	proposes <- [];
+    }
+    
+    aspect default 
 	{
-		participant p<- participant at 0;
-		write "sending message";
-		do start_conversation (to :: [p], protocol :: 'fipa-request', performative :: 'request', contents :: ['Start']);
-		
-	}
-	reflex read_agree_message when: !empty(agrees)
-	{
-		loop a over:agrees
-		{
-			write "agree message with content"+string(a.contents);
-		}		
-	}
-	reflex read_failure_message when: !empty(failures)
-	{
-		loop f over:failures
-		{
-			write "agree message with content"+string(f.contents);
-		}		
-	}
+        draw pyramid(8) at: location color: #black;
+    }
 }
 
-species participant skills:[fipa] {
-		reflex read_message when: !empty(requests)
-		{
-			message request_init_message<- requests at 0;
-			do agree with: (message: request_init_message,contents:["I will"]);
-			write "Failed to sleep";
-			do failure with: (message: request_init_message,contents:["The bed is broken"]);
-			
-				
-		}
+species participant skills:[fipa] 
+{
+	 rgb color <- #blue;   
+    int willingToPay <- rnd(1500,2500);
+    int currentPrice <- 0;
+    
+    reflex readOffers when: (!empty(cfps)) {
+    	message offerFromAuctioneer <- cfps[0];
+    	
+        int offeredPrice <- int(list(offerFromAuctioneer.contents)[0]);
+     
+        if(willingToPay >= offeredPrice) {
+            write name + ": I accept!!!";
+            color <- #green;
+            do propose with: (message: offerFromAuctioneer, contents: ['accept', offeredPrice]);
+        } else {
+            write name + ": No Thanks!";
+            color <- #red;
+            do propose with: (message: offerFromAuctioneer, contents: ['reject']);
+        }
+    }    	
+		    
+    	aspect default 
+    	{
+        	draw sphere(2) at: location color: color;
+    	}
+    	
 }
 
 experiment main type: gui {
-   
+      
+    output {
+        display map type: opengl {
+            species participant;
+            species Auctioneer;
+        }
+    }
  }
